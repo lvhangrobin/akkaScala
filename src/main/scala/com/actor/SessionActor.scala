@@ -1,7 +1,7 @@
 package com.actor
 
 import akka.actor.{Props, Actor}
-import com.{InactiveSession, SystemTime, Request}
+import com.{InitiateChat, InactiveSession, SystemTime, Request}
 
 
 class SessionActor extends Actor {
@@ -14,10 +14,17 @@ class SessionActor extends Actor {
 
     case SystemTime(timestamp) =>
       val diff = timestamp - getLastVisitTime()
-      if (diff >= 5 * 60 * 1000)
-        sender() ! InactiveSession(requests, self)
+      if (diff >= 2 * 60 * 1000 && requests.last.url == "/help" && context.children.size == 0){
+        createChatActor() ! InitiateChat(requests.last.session, timestamp)
+      }
 
+      if (diff >= 5 * 60 * 1000){
+        sender() ! InactiveSession(requests, self)
+      }
   }
+
+  private[actor] def createChatActor() =
+    context.actorOf(ChatActor.props, "chat-actor")
 
   def getLastVisitTime() = requests.last.timestamp
 }
