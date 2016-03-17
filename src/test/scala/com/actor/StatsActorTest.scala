@@ -1,7 +1,7 @@
 package com.actor
 
 import akka.testkit.{TestActorRef, TestProbe}
-import com.{EventProducer, Request, BaseAkkaSpec}
+import com._
 
 class StatsActorTest extends BaseAkkaSpec{
 
@@ -23,6 +23,23 @@ class StatsActorTest extends BaseAkkaSpec{
 
       statsActor ! request
       sessionActor.expectMsg(request)
+    }
+
+    "terminate inactive session actor" in {
+      val sessionActor = TestActorRef[SessionActor](new SessionActor)
+      val session = new Session(20)
+      val requests = session.requests
+      sessionActor.underlyingActor.requests = requests
+
+      val statsActor = TestActorRef[StatsActor](new StatsActor)
+      statsActor.underlyingActor.sessions = Map(session -> sessionActor)
+      val randomRequests = new Session(20).requests
+      statsActor.underlyingActor.stats = Stats(randomRequests)
+
+      statsActor ! InactiveSession(requests, sessionActor)
+
+      statsActor.underlyingActor.sessions should not contain key (session)
+      statsActor.underlyingActor.stats shouldEqual Stats(randomRequests ++ requests)
     }
   }
 }
