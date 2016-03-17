@@ -5,6 +5,7 @@ import akka.testkit.{EventFilter, TestEvent, TestProbe}
 import org.scalatest.BeforeAndAfterAll
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import java.io.File
 
 abstract class BaseAkkaSpec extends BaseSpec with BeforeAndAfterAll {
 
@@ -31,6 +32,8 @@ abstract class BaseAkkaSpec extends BaseSpec with BeforeAndAfterAll {
   system.eventStream.publish(TestEvent.Mute(EventFilter.error()))
 
   override protected def afterAll(): Unit = {
+    val file = new File("./target/persistence.log")
+    if (file.exists()) file.delete()
     system.shutdown()
   }
 }

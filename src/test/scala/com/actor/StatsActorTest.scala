@@ -45,19 +45,33 @@ class StatsActorTest extends BaseAkkaSpec{
       statsTestProbe.expectTerminated(sessionActor)
     }
 
-    "it will restart if it throws an exception" in {
-      val loggingActor = TestProbe()
-      val sessionActor = TestProbe()
+//    "it will restart if it throws an exception" in {
+//      val loggingActor = TestProbe()
+//      val sessionActor = TestProbe()
+//
+//      val statsActor = TestActorRef[StatsActor](new StatsActor {
+//        override def createLoggingActor() = loggingActor.ref
+//      })
+//
+//      val randomRequests = new Session(20).requests
+//
+//      statsActor ! InactiveSession(randomRequests, sessionActor.ref)
+//
+//      loggingActor.expectMsgClass[Retry](classOf[Retry])
+//    }
+
+    "it will serialize and deserialize stats correctly" in {
+      val randomRequests = new Session(20).requests
+      val stats = Stats(randomRequests)
 
       val statsActor = TestActorRef[StatsActor](new StatsActor {
-        override def createLoggingActor() = loggingActor.ref
+        override val persistentFilePath = "./target/persistence.log"
       })
 
-      val randomRequests = new Session(20).requests
+      statsActor.underlyingActor.writeToFile(stats)
+      statsActor.underlyingActor.recoverStats()
 
-      statsActor ! InactiveSession(randomRequests, sessionActor.ref)
-
-      loggingActor.expectMsgClass[Retry](classOf[Retry])
+      statsActor.underlyingActor.stats shouldEqual stats
     }
   }
 }
