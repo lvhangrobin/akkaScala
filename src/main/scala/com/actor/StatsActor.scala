@@ -1,13 +1,20 @@
 package com.actor
 
 import akka.actor.{Props, ActorRef, Actor}
-import com.{InactiveSession, SystemTime, Request, Session, Stats}
+import akka.dispatch.sysmsg.Terminate
+import com._
 
 class StatsActor extends Actor {
 
   var sessions: Map[Session, ActorRef] = Map.empty
   var currentSystemTime: SystemTime = _
   var stats: Stats = Stats(List.empty)
+
+  private val loggingActor = createLoggingActor()
+
+  private[actor] def createLoggingActor() = {
+    context.actorOf(LoggingActor.props, "logging-actor")
+  }
 
   override def receive: Receive = {
     case Request(session, timestamp, url) if sessions.contains(session) =>
@@ -29,12 +36,14 @@ class StatsActor extends Actor {
           sessions -= session
           context.stop(sessionActorRef)
 
-        case None => ()
+        case None => throw new IllegalStateException(s"$sessionActorRef cannot be found")
       }
-
-
-
   }
+
+  override def preRestart(t: Throwable, message: Option[Any]) = {
+    loggingActor ! Retry(t)
+  }
+
 }
 
 object StatsActor {
