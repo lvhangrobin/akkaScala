@@ -1,6 +1,6 @@
 package com.actor
 
-import akka.actor.{ActorRef, Actor}
+import akka.actor.{Props, ActorRef, Actor}
 import com.{Request, Session}
 
 class StatsActor extends Actor {
@@ -16,4 +16,8 @@ class StatsActor extends Actor {
       val sessionActor = context.actorOf(SessionActor.props)
       sessions += session -> sessionActor
   }
+}
+
+object StatsActor {
+  def props = Props(new StatsActor)
 }
