@@ -4,12 +4,7 @@ import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import com._
-import net.liftweb.json.{DefaultFormats, Extraction}
-import net.liftweb.json
 
-import scala.collection.JavaConversions._
-import java.io.{File, FileWriter, PrintWriter}
-import java.nio.file.{Files, Paths}
 import java.util.concurrent.TimeUnit
 
 class StatsActor extends Actor with Stash with ActorLogging{
@@ -22,25 +17,48 @@ class StatsActor extends Actor with Stash with ActorLogging{
   var stats: Stats = Stats(List.empty)
 
   var realTimeStats: Map[Session, (Url, Browser)] = Map.empty
-
-  implicit val formats = DefaultFormats
+  
   implicit val askTimeout = Timeout(5, TimeUnit.SECONDS)
 
   private val loggingActor = createLoggingActor()
-
-  private[actor] val persistentFilePath = "./persistence.log"
+  private val databaseActor = createDatabaseActor()
 
   private[actor] def createLoggingActor() = {
     context.actorOf(LoggingActor.props, "logging-actor")
   }
 
-  override def receive: Receive = {
+  private[actor] def createSessionProxyActor() = {
+    context.actorOf(SessionProxyActor.props)
+  }
+
+  private[actor] def createDatabaseActor() = {
+    context.actorOf(DatabaseActor.props)
+  }
+
+  override def receive: Receive = recoverStats
+
+  def recoverStats: Receive = {
+    case RetrievedData(retrievedStats) =>
+      stats = retrievedStats
+      context.become(processingRequests)
+      unstashAll()
+
+    case Status.Failure(e) =>
+      stats = Stats(List.empty)
+      context.become(processingRequests)
+      unstashAll()
+
+    case _ =>
+      stash()
+  }
+
+  def processingRequests: Receive = {
     case Request(session, timestamp, url) if sessions.contains(session) =>
       val sessionProxyActor = sessions(session)
       sessionProxyActor ! Request(session, timestamp, url)
 
     case r@Request(session, timestamp, url) =>
-      val sessionProxyActor = creatSessionProxyActor()
+      val sessionProxyActor = createSessionProxyActor()
       sessions += session -> sessionProxyActor
       sessionProxyActor ! r
 
@@ -48,7 +66,7 @@ class StatsActor extends Actor with Stash with ActorLogging{
       currentSystemTime = t
       context.children.foreach(_ ! t)
       if (currentSystemTime.timestamp / 1000 % 5 == 0)
-        writeToFile()
+        databaseActor ! StoreData(stats)
 
     case RealTimeStatsRequest =>
       sessions.values.foreach(r => (r ? RealTimeStats) pipeTo self)
@@ -67,10 +85,6 @@ class StatsActor extends Actor with Stash with ActorLogging{
 
     case RequestRejected(session) =>
       log.warning(s"Cannot forward request to ${session.id} for the moment. ${session.id} is having too many requests!")
-  }
-
-  def creatSessionProxyActor() = {
-    context.actorOf(SessionProxyActor.props)
   }
 
   def processingRealTimeStats(originalSender: ActorRef): Receive = {
@@ -104,30 +118,12 @@ class StatsActor extends Actor with Stash with ActorLogging{
     }
   }
 
-  private[actor] def writeToFile(readyToSerialize: Stats = stats) = {
-    val writer = new PrintWriter(new FileWriter(persistentFilePath))
-    try{
-      val out = json.compactRender(Extraction.decompose(readyToSerialize))
-      writer.print(out)
-    } finally writer.close()
-  }
-
-  private[actor] def recoverStats() = {
-
-    val persistentFile = new File(persistentFilePath)
-    val filePath = Paths.get(persistentFilePath)
-    val input = Files.readAllLines(filePath).mkString("")
-    if (persistentFile.exists()) {
-      stats = json.parse(input).extract[Stats]
-    }
-  }
-
   override def preRestart(t: Throwable, message: Option[Any]) = {
     loggingActor ! Retry(t)
   }
 
   override def postRestart(t: Throwable) = {
-    recoverStats()
+    databaseActor ? RetrieveData pipeTo self
   }
 }
 

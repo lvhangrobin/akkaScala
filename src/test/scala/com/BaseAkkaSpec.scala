@@ -32,8 +32,6 @@ abstract class BaseAkkaSpec extends BaseSpec with BeforeAndAfterAll {
   system.eventStream.publish(TestEvent.Mute(EventFilter.error()))
 
   override protected def afterAll(): Unit = {
-    val file = new File("./target/persistence.log")
-    if (file.exists()) file.delete()
     system.shutdown()
   }
 }

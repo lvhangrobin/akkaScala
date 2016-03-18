@@ -15,26 +15,28 @@ class StatsActorTest extends BaseAkkaSpec{
       TestProbe().expectActor("/user/stats-actor/$*")
     }
 
-    "send the event to the same session actor" in {
+    "send the event to the same session proxy actor" in {
       val statsActor = TestActorRef[StatsActor](new StatsActor)
       val request = (new EventProducer(1)).tick.head
       val sessionProxyActor = TestProbe()
       statsActor.underlyingActor.sessions = Map(request.session -> sessionProxyActor.ref)
 
+      statsActor ! RetrievedData(Stats(List.empty)) //switch context
       statsActor ! request
       sessionProxyActor.expectMsg(request)
     }
 
     "terminate inactive session actor" in {
       val sessionActor = TestActorRef[SessionActor](new SessionActor)
-      val session = new Session(20)
+      val session = Session(20)
       val requests = session.requests
       sessionActor.underlyingActor.requests = requests
 
       val statsActor = TestActorRef[StatsActor](new StatsActor)
       statsActor.underlyingActor.sessions = Map(session -> sessionActor)
-      val randomRequests = new Session(20).requests
-      statsActor.underlyingActor.stats = Stats(randomRequests)
+      val randomRequests = Session(20).requests
+      statsActor ! RetrievedData(Stats(randomRequests)) //switch context
+
       val statsTestProbe = TestProbe()
       statsTestProbe.watch(sessionActor)
 
@@ -45,7 +47,7 @@ class StatsActorTest extends BaseAkkaSpec{
       statsTestProbe.expectTerminated(sessionActor)
     }
 
-    "it will restart if it throws an exception" in {
+    "restart if it throws an exception" in {
       val loggingActor = TestProbe()
       val sessionActor = TestProbe()
 
@@ -53,25 +55,41 @@ class StatsActorTest extends BaseAkkaSpec{
         override def createLoggingActor() = loggingActor.ref
       })
 
-      val randomRequests = new Session(20).requests
+      val randomRequests = Session(20).requests
 
+      statsActor ! RetrievedData(Stats(randomRequests)) //switch context
       statsActor ! InactiveSession(randomRequests, sessionActor.ref)
 
       loggingActor.expectMsgClass[Retry](classOf[Retry])
     }
 
-    "it will serialize and deserialize stats correctly" in {
-      val randomRequests = new Session(20).requests
-      val stats = Stats(randomRequests)
+    "store data periodically" in {
+      val databaseActor = TestProbe()
 
       val statsActor = TestActorRef[StatsActor](new StatsActor {
-        override val persistentFilePath = "./target/persistence.log"
+        override def createSessionProxyActor() = TestProbe().ref
+        override def createDatabaseActor() = databaseActor.ref
       })
 
-      statsActor.underlyingActor.writeToFile(stats)
-      statsActor.underlyingActor.recoverStats()
+      val randomRequests = Session(20).requests
+      statsActor ! RetrievedData(Stats(randomRequests)) //switch context
 
-      statsActor.underlyingActor.stats shouldEqual stats
+      val systemTimes = randomRequests.take(5).map(r => SystemTime(r.timestamp))
+      systemTimes.foreach(statsActor ! _)
+
+      databaseActor.expectMsg(StoreData(Stats(randomRequests)))
+    }
+
+    "retrieve stats on postRestart" in {
+      val databaseActor = TestProbe()
+
+      val statsActor = TestActorRef[StatsActor](new StatsActor {
+        override def createDatabaseActor() = databaseActor.ref
+      })
+
+      statsActor.underlyingActor.postRestart(new Exception)
+
+      databaseActor.expectMsg(RetrieveData)
     }
   }
 }
