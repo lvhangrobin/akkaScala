@@ -15,7 +15,6 @@ class SessionActorTest extends BaseAkkaSpec{
       val lastRequest = requests.last
       sessionActor.underlyingActor.requests = requests
 
-
       sessionActor ! SystemTime(lastRequest.timestamp + 5 * 60 * 1000)
       statsActor.expectMsg(InactiveSession(requests, sessionActor))
 

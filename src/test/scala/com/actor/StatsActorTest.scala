@@ -18,11 +18,11 @@ class StatsActorTest extends BaseAkkaSpec{
     "send the event to the same session actor" in {
       val statsActor = TestActorRef[StatsActor](new StatsActor)
       val request = (new EventProducer(1)).tick.head
-      val sessionActor = TestProbe()
-      statsActor.underlyingActor.sessions = Map(request.session -> sessionActor.ref)
+      val sessionProxyActor = TestProbe()
+      statsActor.underlyingActor.sessions = Map(request.session -> sessionProxyActor.ref)
 
       statsActor ! request
-      sessionActor.expectMsg(request)
+      sessionProxyActor.expectMsg(request)
     }
 
     "terminate inactive session actor" in {

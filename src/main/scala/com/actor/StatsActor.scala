@@ -1,6 +1,6 @@
 package com.actor
 
-import akka.actor.{Status, Stash, Actor, ActorRef, Props}
+import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import com._
@@ -12,7 +12,7 @@ import java.io.{File, FileWriter, PrintWriter}
 import java.nio.file.{Files, Paths}
 import java.util.concurrent.TimeUnit
 
-class StatsActor extends Actor with Stash{
+class StatsActor extends Actor with Stash with ActorLogging{
 
   import StatsActor._
   import context.dispatcher
@@ -36,13 +36,13 @@ class StatsActor extends Actor with Stash{
 
   override def receive: Receive = {
     case Request(session, timestamp, url) if sessions.contains(session) =>
-      val sessionActor = sessions(session)
-      sessionActor ! Request(session, timestamp, url)
+      val sessionProxyActor = sessions(session)
+      sessionProxyActor ! Request(session, timestamp, url)
 
     case r@Request(session, timestamp, url) =>
-      val sessionActor = context.actorOf(SessionActor.props)
-      sessions += session -> sessionActor
-      sessionActor ! r
+      val sessionProxyActor = creatSessionProxyActor()
+      sessions += session -> sessionProxyActor
+      sessionProxyActor ! r
 
     case t@SystemTime(timestamp) =>
       currentSystemTime = t
@@ -64,6 +64,13 @@ class StatsActor extends Actor with Stash{
 
         case None => throw new IllegalStateException(s"$sessionActorRef cannot be found")
       }
+
+    case RequestRejected(session) =>
+      log.warning(s"Cannot forward request to ${session.id} for the moment. ${session.id} is having too many requests!")
+  }
+
+  def creatSessionProxyActor() = {
+    context.actorOf(SessionProxyActor.props)
   }
 
   def processingRealTimeStats(originalSender: ActorRef): Receive = {
@@ -96,8 +103,6 @@ class StatsActor extends Actor with Stash{
       false
     }
   }
-
-
 
   private[actor] def writeToFile(readyToSerialize: Stats = stats) = {
     val writer = new PrintWriter(new FileWriter(persistentFilePath))
