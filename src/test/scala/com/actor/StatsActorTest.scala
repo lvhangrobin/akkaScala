@@ -95,26 +95,26 @@ class StatsActorTest extends BaseAkkaSpec{
     }
 
     "handle reading from database failure by using default empty stats" in {
-//      lazy val databaseActor = TestActorRef[DatabaseActor](new DatabaseActor {
-//        override val failureRate = 100
-//      })
-//
-//      val testProbe = TestProbe()
-//      val statsActor = TestActorRef[StatsActor](new StatsActor {
-//        override def createDatabaseActor() = databaseActor
-//
-//        override def dealWithError(t: Throwable) = {
-//          testProbe.ref ! Status.Failure(t)
-//        }
-//      })
-//
-//
-//      implicit val _ = statsActor
-//      val randomRequests = Session(20).requests
-//      val stats = Stats(randomRequests)
-//
-//      databaseActor ! StoreData(stats)
+      var result = false
 
+      lazy val databaseActor = TestActorRef[DatabaseActor](new DatabaseActor {
+        override val failureRate = 100
+      })
+
+      val statsActor = TestActorRef[StatsActor](new StatsActor {
+        override def createDatabaseActor() = databaseActor
+
+        override def dealWithError(t: Throwable) = {
+          result = true
+        }
+      })
+
+      val randomRequests = Session(20).requests
+      val stats = Stats(randomRequests)
+
+      databaseActor.tell(StoreData(stats), statsActor)
+
+      result shouldEqual true
     }
 
     "handle writing to database failure by logging ignoring the exception" in {

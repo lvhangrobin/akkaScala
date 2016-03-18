@@ -104,9 +104,10 @@ class StatsActor extends Actor with Stash with ActorLogging{
   def processingRealTimeStats(originalSender: ActorRef): Receive = {
     case RealTimeResponse(session, url, browser) =>
       realTimeStats += session -> (url, browser)
-      if (maybeRealTimeStatsReady(originalSender))
+      if (maybeRealTimeStatsReady(originalSender)){
         unstashAll()
         context.become(receive)
+      }
 
     case Status.Failure(e) =>
       self ! RealTimeResponse(Session(0), "", "")
