@@ -1,6 +1,8 @@
 package com.actor
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Stash, Actor, ActorRef, Props}
+import akka.pattern.ask
+import akka.util.Timeout
 import com._
 import net.liftweb.json.{DefaultFormats, Extraction}
 import net.liftweb.json
@@ -9,11 +11,14 @@ import scala.collection.JavaConversions._
 import java.io.{File, FileWriter, PrintWriter}
 import java.nio.file.{Files, Paths}
 
-class StatsActor extends Actor {
+class StatsActor extends Actor with Stash{
 
+  import StatsActor._
   var sessions: Map[Session, ActorRef] = Map.empty
   var currentSystemTime: SystemTime = _
   var stats: Stats = Stats(List.empty)
+
+  var realTimeStats: Map[Session, (Url, Browser)] = Map.empty
 
   implicit val formats = DefaultFormats
 
@@ -41,6 +46,11 @@ class StatsActor extends Actor {
       if (currentSystemTime.timestamp / 1000 % 5 == 0)
         writeToFile()
 
+    case RealTimeStatsRequest =>
+      sessions.values.foreach(_ ? RealTimeStats)
+      context.become(processingRealTimeStats(sender()))
+      realTimeStats = Map.empty
+
     case InactiveSession(requests, sessionActorRef) =>
       sessions.find{case (_, actorRef) => actorRef == sessionActorRef} match {
         case Some((session, _)) =>
@@ -51,6 +61,36 @@ class StatsActor extends Actor {
         case None => throw new IllegalStateException(s"$sessionActorRef cannot be found")
       }
   }
+
+  def processingRealTimeStats(originalSender: ActorRef): Receive = {
+    case RealTimeResponse(session, url, browser) =>
+      realTimeStats += session -> (url, browser)
+      if (maybeRealTimeStatsReady(originalSender))
+        unstashAll()
+        context.become(receive)
+
+    case _ =>
+      stash()
+  }
+
+  def maybeRealTimeStatsReady(originalSender: ActorRef): Boolean = {
+    if (realTimeStats.size == sessions.size) {
+      val totalNumberOfUsers =
+        realTimeStats.size
+      val numOfUsersPerUrl: Map[Url, Int] =
+        realTimeStats.toList.groupBy(_._2._1).mapValues(_.size)
+      val numOfUsersPerBrowser: Map[Browser, Int] =
+        realTimeStats.toList.groupBy(_._2._2).mapValues(_.size)
+
+      originalSender ! RealTimeStatsResponse(totalNumberOfUsers, numOfUsersPerUrl, numOfUsersPerBrowser)
+      true
+
+    } else {
+      false
+    }
+  }
+
+
 
   private[actor] def writeToFile(readyToSerialize: Stats = stats) = {
     val writer = new PrintWriter(new FileWriter(persistentFilePath))
@@ -80,5 +120,10 @@ class StatsActor extends Actor {
 }
 
 object StatsActor {
+
+  type Url = String
+
+  type Browser = String
+
   def props = Props(new StatsActor)
 }
