@@ -1,7 +1,9 @@
 package com.actor
 
+import akka.actor.Status
 import akka.testkit.{TestActorRef, TestProbe}
 import com._
+import com.actor.DatabaseActor.DatabaseFailureException
 
 class StatsActorTest extends BaseAkkaSpec{
 
@@ -90,6 +92,33 @@ class StatsActorTest extends BaseAkkaSpec{
       statsActor.underlyingActor.postRestart(new Exception)
 
       databaseActor.expectMsg(RetrieveData)
+    }
+
+    "handle reading from database failure by using default empty stats" in {
+//      lazy val databaseActor = TestActorRef[DatabaseActor](new DatabaseActor {
+//        override val failureRate = 100
+//      })
+//
+//      val testProbe = TestProbe()
+//      val statsActor = TestActorRef[StatsActor](new StatsActor {
+//        override def createDatabaseActor() = databaseActor
+//
+//        override def dealWithError(t: Throwable) = {
+//          testProbe.ref ! Status.Failure(t)
+//        }
+//      })
+//
+//
+//      implicit val _ = statsActor
+//      val randomRequests = Session(20).requests
+//      val stats = Stats(randomRequests)
+//
+//      databaseActor ! StoreData(stats)
+
+    }
+
+    "handle writing to database failure by logging ignoring the exception" in {
+
     }
   }
 }

@@ -1,10 +1,11 @@
 package com.actor
 
+import akka.actor.SupervisorStrategy._
 import akka.actor._
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import com._
-
+import com.actor.DatabaseActor.DatabaseFailureException
 import java.util.concurrent.TimeUnit
 
 class StatsActor extends Actor with Stash with ActorLogging{
@@ -22,6 +23,16 @@ class StatsActor extends Actor with Stash with ActorLogging{
 
   private val loggingActor = createLoggingActor()
   private val databaseActor = createDatabaseActor()
+
+  override val supervisorStrategy: SupervisorStrategy = {
+    val decider: Decider = {
+      case e@DatabaseFailureException(m) =>
+        self ! Status.Failure(e)
+        Restart
+    }
+
+    OneForOneStrategy() { decider orElse super.supervisorStrategy.decider }
+  }
 
   private[actor] def createLoggingActor() = {
     context.actorOf(LoggingActor.props, "logging-actor")
@@ -85,6 +96,9 @@ class StatsActor extends Actor with Stash with ActorLogging{
 
     case RequestRejected(session) =>
       log.warning(s"Cannot forward request to ${session.id} for the moment. ${session.id} is having too many requests!")
+
+    case Status.Failure(t: DatabaseFailureException) =>
+      dealWithError(t)
   }
 
   def processingRealTimeStats(originalSender: ActorRef): Receive = {
@@ -99,6 +113,10 @@ class StatsActor extends Actor with Stash with ActorLogging{
 
     case _ =>
       stash()
+  }
+
+  def dealWithError(t: Throwable) = {
+    log.error(t, "Receive failure from database actor!")
   }
 
   def maybeRealTimeStatsReady(originalSender: ActorRef): Boolean = {
