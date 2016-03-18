@@ -1,7 +1,7 @@
 package com.actor
 
-import akka.actor.{Stash, Actor, ActorRef, Props}
-import akka.pattern.ask
+import akka.actor.{Status, Stash, Actor, ActorRef, Props}
+import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 import com._
 import net.liftweb.json.{DefaultFormats, Extraction}
@@ -10,10 +10,13 @@ import net.liftweb.json
 import scala.collection.JavaConversions._
 import java.io.{File, FileWriter, PrintWriter}
 import java.nio.file.{Files, Paths}
+import java.util.concurrent.TimeUnit
 
 class StatsActor extends Actor with Stash{
 
   import StatsActor._
+  import context.dispatcher
+
   var sessions: Map[Session, ActorRef] = Map.empty
   var currentSystemTime: SystemTime = _
   var stats: Stats = Stats(List.empty)
@@ -21,6 +24,7 @@ class StatsActor extends Actor with Stash{
   var realTimeStats: Map[Session, (Url, Browser)] = Map.empty
 
   implicit val formats = DefaultFormats
+  implicit val askTimeout = Timeout(5, TimeUnit.SECONDS)
 
   private val loggingActor = createLoggingActor()
 
@@ -47,7 +51,7 @@ class StatsActor extends Actor with Stash{
         writeToFile()
 
     case RealTimeStatsRequest =>
-      sessions.values.foreach(_ ? RealTimeStats)
+      sessions.values.foreach(r => (r ? RealTimeStats) pipeTo self)
       context.become(processingRealTimeStats(sender()))
       realTimeStats = Map.empty
 
@@ -69,6 +73,9 @@ class StatsActor extends Actor with Stash{
         unstashAll()
         context.become(receive)
 
+    case Status.Failure(e) =>
+      self ! RealTimeResponse(Session(0), "", "")
+
     case _ =>
       stash()
   }
@@ -78,9 +85,9 @@ class StatsActor extends Actor with Stash{
       val totalNumberOfUsers =
         realTimeStats.size
       val numOfUsersPerUrl: Map[Url, Int] =
-        realTimeStats.toList.groupBy(_._2._1).mapValues(_.size)
+        realTimeStats.toList.groupBy(_._2._1).mapValues(_.size).filterNot(_._1 == "")
       val numOfUsersPerBrowser: Map[Browser, Int] =
-        realTimeStats.toList.groupBy(_._2._2).mapValues(_.size)
+        realTimeStats.toList.groupBy(_._2._2).mapValues(_.size).filterNot(_._1 == "")
 
       originalSender ! RealTimeStatsResponse(totalNumberOfUsers, numOfUsersPerUrl, numOfUsersPerBrowser)
       true
